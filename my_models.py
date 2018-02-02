@@ -3,6 +3,9 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 
+import scipy.io as sio
+import numpy as np
+
 class BaseDenseLayer(nn.Module):
     """docstring for BaseLayer"""
     def __init__(self, input_dim, growth_rate):
@@ -74,7 +77,7 @@ class RDCN_VGG(nn.Module):
 
         self.recNum = rec_num
         self.downsample = nn.Sequential(OrderedDict([
-            # ('data/bn', nn.BatchNorm2d(3)),
+            ('data/bn', nn.BatchNorm2d(3)),
             ('conv1_1', nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1)),
             ('conv1_1/bn', nn.BatchNorm2d(64)),
             ('relu1_1', nn.ReLU(inplace=True)),
@@ -117,9 +120,66 @@ class RDCN_VGG(nn.Module):
         )  
         self.predict = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, padding=1, bias=False)
 
+    def loadConv(self, pretrain_model):
+        pretrainModel = sio.loadmat(pretrain_model)
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                last_name = name.split('.')[-1]
+                if module.bias is not None:
+                    for key, value in pretrainModel.items():
+                        if '%s_0'%last_name == key:  # for weight
+                            print('load %s'%key)
+                            self.copyArrayToTensor(value, module.weight.data)
+
+                        if '%s_1'%last_name == key:  # for weight
+                            print('load %s'%key)
+                            self.copyArrayToTensor(value, module.bias.data)
+                else:
+                    for key, value in pretrainModel.items():
+                        if '%s_0'%last_name == key:  # for weight
+                            print('load %s'%key)
+                            self.copyArrayToTensor(value, module.weight.data)
+
+
+    def copyArrayToTensor(self, array, tensor):
+        aShape = array.shape
+        tShape = tensor.shape
+        
+        if len(aShape) == 2 and aShape[0] == 1:
+            array = np.squeeze(array)
+            aShape = array.shape
+
+        if len(aShape) != len(tShape):
+            raise ValueError('array shape:{} mismatches with tensor: {}'.format(aShape, tShape))
+
+        for indx in range(len(aShape)):
+            if aShape[indx] != tShape[indx]:
+                raise ValueError('array shape:{} mismatches with tensor: {}'.format(aShape, tShape))
+
+        if len(aShape) == 1:
+            for n in range(aShape[0]):
+                tensor[n] = float(array[n])
+        elif len(aShape) == 2:
+            for n in range(aShape[0]):
+                for c in range(aShape[1]):
+                    tensor[n, c] = float(array[n, c])
+        elif len(aShape) == 3:
+            for n in range(aShape[0]):
+                for c in range(aShape[1]):
+                    for h in range(aShape[2]):
+                        tensor[n, c, h] = float(array[n, c, h])
+        elif len(aShape) == 4:
+            for n in range(aShape[0]):
+                for c in range(aShape[1]):
+                    for h in range(aShape[2]):
+                        for w in range(aShape[3]):
+                            tensor[n, c, h, w] = float(array[n, c, h, w])
+
+
     def forward(self, x):
         out = self.downsample(x)
         predictx4s = [None for i in range(self.recNum)]
+        catFlag = False
         predictx4Cat = None
         predict_final = None
 
@@ -127,17 +187,16 @@ class RDCN_VGG(nn.Module):
         for indx in range(self.recNum):
             out = self.denseBlock(out)
             predictx4s[indx] = self.predictx4(out)
-            if predictx4Cat == None:
+            if not catFlag:
+                catFlag = True
                 predictx4Cat = predictx4s[indx]
             else:
                 predictx4Cat = torch.cat([predictx4Cat, predictx4s[indx]], 1)
 
-            out = self.upsample4x(out)
-            out = self.predict(out)
-
-            predict_final = out
-
         predictx4_avg = self.weightedAvg(predictx4Cat)
+
+        out = self.upsample4x(out)
+        predict_final = self.predict(out)
 
         return predictx4s, predictx4_avg, predict_final
 
