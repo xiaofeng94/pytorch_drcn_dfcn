@@ -2,7 +2,7 @@ import argparse
 
 import torch
 from torch.autograd import Variable
-from my_models import RDCN_VGG
+from my_models import DFCN_32
 
 import scipy.io as sio
 import numpy as np
@@ -40,17 +40,15 @@ if not opt.cpu:
     # depth_new = depth_new.cuda()
     # depthx4_new = depthx4_new.cuda()
 
-predictx4s, predictx4_avg, predict_final = model(Variable(rgb_new))
+predicted_depth = model(Variable(rgb_new))
 # _, predictx4_2, predict_2 = model(Variable(torch.randn(1,3,480,640).cuda()))
 
 
-predictx4_avg = predictx4_avg.cpu()
-predict_final = predict_final.cpu()
+predicted_depth = predicted_depth.cpu()
 # predictx4_2 = predictx4_2.cpu()
 
-depthx4 = np.exp(depthx4)
-predictx4_np = np.exp( predictx4_avg.data[0].numpy()[0,...].astype(np.float32) )
-predict_np = np.exp( predict_final.data[0].numpy()[0,...].astype(np.float32) )
+depth = np.exp(depth)
+predicted_depth_np = np.exp( predicted_depth.data[0].numpy()[0,...].astype(np.float32) )
 # predict_np2 = np.exp( predictx4_2.data[0].numpy()[0,...].astype(np.float32) )
 
 # print(predict_np)
@@ -65,7 +63,6 @@ predict_np = np.exp( predict_final.data[0].numpy()[0,...].astype(np.float32) )
 # depth_final = Image.fromarray(predict_np2)
 # depth_final.show()
 
-sio.savemat('results.mat', {'rgb': rgb, 'depthx4':depthx4, 
-                            'depthx4_pred': predictx4_np, 'depth_pred': predict_np})
+sio.savemat('results.mat', {'rgb': rgb, 'depth':depth, 'depth_pred': predicted_depth_np})
 
 print('Done!')

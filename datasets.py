@@ -7,12 +7,15 @@ import numpy as np
 
 # TODO: data argumentation
 class NYUv2DataSet(data.Dataset):
-    def __init__(self, data_root):
+    def __init__(self, data_root, is_train=True):
         super(NYUv2DataSet, self).__init__()
 
         self.dataRoot = data_root
         self.dataFiles = glob.glob('%s/*.mat'%self.dataRoot)
         self.dataNum = len(self.dataFiles)
+        self.requiredSize = [240, 320]
+        self.reqSizex4 = [60, 80]
+        self.isTrain = is_train
 
     def __getitem__(self, index):
         currFile = self.dataFiles[index]
@@ -22,9 +25,27 @@ class NYUv2DataSet(data.Dataset):
         rgb = data['rgb'][0,0].transpose((2, 0, 1))
         depth = data['depth'][0,0]
         depthx4 = data['depthx4'][0,0]
+        imageSize = data['imageSize'][0,0][0]
+        # print(imageSize)
+        if imageSize[0] < self.requiredSize[0] or imageSize[1] < self.requiredSize[1]:
+            raise ValueError('input image size is smaller than [240, 320]')
 
-        depth = depth[np.newaxis, :, :]
-        depthx4 = depthx4[np.newaxis, :, :]
+        if self.isTrain:
+            import random
+            offset_x = random.randint(0, imageSize[0] - self.requiredSize[0]) // 4
+            offset_y = random.randint(0, imageSize[1] - self.requiredSize[1]) // 4
+        else:
+            offset_x = int((imageSize[0] - self.requiredSize[0])/2) // 4
+            offset_y = int((imageSize[1] - self.requiredSize[1])/2) // 4
+
+        rgb = rgb[:, 4*offset_x:4*offset_x+self.requiredSize[0],
+                        4*offset_y:4*offset_y+self.requiredSize[1]]
+                        
+        depth = depth[np.newaxis, 4*offset_x:4*offset_x+self.requiredSize[0],
+                                        4*offset_y:4*offset_y+self.requiredSize[1]]
+
+        depthx4 = depthx4[np.newaxis, offset_x:offset_x+self.reqSizex4[0],
+                                        offset_y:offset_y+self.reqSizex4[1]]
 
         return torch.from_numpy(rgb).float(), torch.from_numpy(depth).float(), torch.from_numpy(depthx4).float()
 

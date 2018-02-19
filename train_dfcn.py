@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 
-from my_models import RDCN_VGG
+from my_models import DFCN_32, InvLoss
 from datasets import NYUv2DataSet
 
 parser = argparse.ArgumentParser(description="pytorch recusive densely-connected nerual network")
@@ -20,9 +20,9 @@ parser.add_argument("--lr_step", type=int, default=80, help="Sets the learning r
 parser.add_argument("--cpu", action="store_true", help="Use cpu only")
 parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader to use, Default: 1")
 parser.add_argument("--disp", type=int, default=16, help="display interval, Default:16")
-parser.add_argument("--alpha", type=int, default=0.5, help="the coefficient for x4 loss, Default: 0.5")
-parser.add_argument("--lamda", type=int, default=1, help="the coefficient for complete loss, Default: 1")
-parser.add_argument("--rec_num", type=int, default=1, help="recusive times that the data go through the dense block")
+# parser.add_argument("--alpha", type=int, default=0.5, help="the coefficient for x4 loss, Default: 0.5")
+# parser.add_argument("--lamda", type=int, default=1, help="the coefficient for complete loss, Default: 1")
+# parser.add_argument("--rec_num", type=int, default=1, help="recusive times that the data go through the dense block")
 parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
 parser.add_argument("--start_epoch", default=1, type=int, help="Manual epoch number (useful on restarts)")
 parser.add_argument("--debug", action="store_true", help="debug network parameters")
@@ -30,7 +30,8 @@ parser.add_argument("--pretrain", default="", type=str, help="use pretrained mod
 parser.add_argument("--save_dir", default="model/", type=str, help="asign the save dir of checkpoint")
 parser.add_argument("--save_step", type=int, default=10,  help="save model every assigned epochs")
 parser.add_argument("--data", default="/media/xiaofeng/learning/NYUv2_DATA/Dataset/rdcn_crop/train", type=str, help="training data folder")
-
+parser.add_argument("--net_type", default="dfcn_32", type=str, help="assign what kind of network to be used, default: dfcn_32")
+parser.add_argument("--lamda", type=int, default=0.5, help="the coefficient for sum square part in invLoss, Default: 0.5")
 
 def main():
     print('start to train..')
@@ -53,8 +54,11 @@ def main():
     cudnn.benchmark = True
 
     print('build model...')
-    model = RDCN_VGG(opt.rec_num)
-    # criterion = nn.MSELoss(size_average=True)
+    if opt.net_type == 'dfcn_32':
+        model = DFCN_32()
+    else:
+        print('model type %s does not exist'%(opt.net_type))
+        exit(-1)
     print_network(model)
 
     # use pretrained vgg model
@@ -93,6 +97,18 @@ def adjust_learning_rate(optimizer, epoch):
     lr = opt.lr * (0.4 ** (epoch // opt.lr_step))
     return lr    
 
+# def invLoss(input, target, lamda=0.5):
+#     dArr = input - target
+
+#     mseLoss = torch.sum(torch.sum(dArr*dArr, 2), 3)/nVal
+#     dArrSum = torch.sum(torch.sum(dArr, 2), 3)
+#     mssLoss = -lamda*(dArrSum*dArrSum)/(nVal**2)
+
+#     loss = mseLoss + mssLoss
+#     loss = torch.sum(loss)
+#     return loss
+
+
 def train(training_data_loader, optimizer, model, epoch):
     lr = adjust_learning_rate(optimizer, epoch-1)
     
@@ -105,37 +121,20 @@ def train(training_data_loader, optimizer, model, epoch):
     cumulated_loss = 0
     stepCount = 0
     optimizer.zero_grad()
+    # criterion = nn.MSELoss(size_average=True)
+    criterion = InvLoss(opt.lamda)
 
     for iterCount, batch in enumerate(training_data_loader, 1):
-        inputData, target, targetx4 = Variable(batch[0]), Variable(batch[1], requires_grad=False), Variable(batch[2], requires_grad=False)
+        inputData, target = Variable(batch[0]), Variable(batch[1], requires_grad=False)
 
         if not opt.cpu:
             inputData = inputData.cuda()
             target = target.cuda()
             targetx4 = targetx4.cuda()
 
-        predictx4s, predictx4_avg, predict_final = model(inputData)
-    
-        x4Flag = False
-        x4Loss = None
-        for indx in range(len(predictx4s)):
-            criterion = nn.MSELoss(size_average=True)
-            criterion = criterion.cuda()
-            if not x4Flag:
-                x4Flag = True
-                x4Loss = criterion(predictx4s[indx], targetx4)
-            else:
-                x4Loss = x4Loss + criterion(predictx4s[indx], targetx4)
-        x4Loss = x4Loss/len(predictx4s)
+        predicted_depth = model(inputData)
 
-        avgCriterion = nn.MSELoss(size_average=True)
-        avgCriterion = avgCriterion.cuda()
-        finalCriterion = nn.MSELoss(size_average=True)
-        finalCriterion = finalCriterion.cuda()
-        avgLoss = avgCriterion(predictx4_avg, targetx4)
-        finalLoss = finalCriterion(predict_final, target)
-
-        loss = opt.alpha*x4Loss + (1-opt.alpha)*avgLoss + opt.lamda*finalLoss
+        loss = criterion(predicted_depth, target)
 
         if stepCount >= opt.step_size:
             stepCount = 0

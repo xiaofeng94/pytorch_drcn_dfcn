@@ -57,7 +57,9 @@ class DenseBlock(nn.Module):
         #     currOut = self.layers[indx](catOut)
         #     catOut = torch.cat([catOut, currOut], 1)
         out = self.denseLayer(x)
-        return self.transition(out)
+        out = self.transition(out)
+        # print(out)
+        return out
 
     # def baseLayer(self, indx):
     #     srcDim = self.inputDim+indx*self.growthRate
@@ -69,6 +71,84 @@ class DenseBlock(nn.Module):
     #         nn.ReLU(inplace=True),
     #         nn.Conv2d(in_channels=128, out_channels=self.growthRate, kernel_size=3, padding=1)
     #     ])
+
+class DFCN_32(nn.Module):
+    """docstring for DFCN_32"""
+    def __init__(self):
+        super(DFCN_32, self).__init__()
+        
+        self.conv_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1, stride=2)
+        self.relu1 =  nn.ReLU(inplace=True)
+        self.pooling_1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.denseBlock1 = DenseBlock(inputDim=64, outputDim=128 ,growthRate=32, blockDepth=4)
+        self.relu2 =  nn.ReLU(inplace=True)
+        self.pooling_2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.denseBlock2 = DenseBlock(inputDim=128, outputDim=256 ,growthRate=32, blockDepth=8)
+        self.relu3 =  nn.ReLU(inplace=True)
+        self.pooling_3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.denseBlock3 = DenseBlock(inputDim=256, outputDim=512 ,growthRate=32, blockDepth=16)
+        self.relu4 =  nn.ReLU(inplace=True)
+        self.pooling_4 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        self.conv_fc_5_1 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, padding=0)
+        self.relu5 =  nn.ReLU(inplace=True)
+        self.conv_fc_5_2 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, padding=0)
+        self.relu6 =  nn.ReLU(inplace=True)
+
+        self.score_32 = nn.Conv2d(in_channels=512, out_channels=1, kernel_size=3, padding=1)
+        self.relu7 =  nn.ReLU(inplace=True)
+        self.upsample_to_16 = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.upsample_to_8 = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.upsample_to_4 = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.upsample4x = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+
+    def forward(self, x):
+        out = self.conv_1(x)
+        out = self.relu1(out)
+        out = self.pooling_1(out)
+
+        out = self.denseBlock1(out)
+        out = self.relu2(out)
+        out = self.pooling_2(out)
+        out = self.denseBlock2(out)
+        out = self.relu3(out)
+        out = self.pooling_3(out)
+        out = self.denseBlock3(out)
+        out = self.relu4(out)
+        out = self.pooling_4(out)
+
+        out = self.conv_fc_5_1(out)
+        out = self.relu5(out)
+        out = self.conv_fc_5_2(out)
+        out = self.relu6(out)
+        out = self.score_32(out)
+        out = self.relu7(out)
+
+        out = self.upsample_to_16(out)
+        out = self.upsample_to_8(out)
+        out = self.upsample_to_4(out)
+        out = self.upsample4x(out)
+
+        return out
 
 
 class RDCN_VGG(nn.Module):
@@ -192,11 +272,30 @@ class RDCN_VGG(nn.Module):
                 predictx4Cat = predictx4s[indx]
             else:
                 predictx4Cat = torch.cat([predictx4Cat, predictx4s[indx]], 1)
+            # print(predictx4s[indx])
 
         predictx4_avg = self.weightedAvg(predictx4Cat)
+        # print('-- avg\n', predictx4_avg)
 
         out = self.upsample4x(out)
         predict_final = self.predict(out)
 
         return predictx4s, predictx4_avg, predict_final
 
+class InvLoss(nn.Module):
+    def __init__(self, lamda=0.5):
+        super(InvLoss, self).__init__()
+        self.lamda = lamda
+
+    def forward(self, _input, _target):
+        dArr = _input - _target
+
+        mseLoss = torch.sum(torch.sum(dArr*dArr, 2), 3)/nVal
+        dArrSum = torch.sum(torch.sum(dArr, 2), 3)
+        mssLoss = -self.lamda*(dArrSum*dArrSum)/(nVal**2)
+
+        loss = mseLoss + mssLoss
+        loss = torch.sum(loss)
+        return loss
+
+        
