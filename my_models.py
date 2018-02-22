@@ -2,6 +2,7 @@ from collections import OrderedDict
 
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
 
 import scipy.io as sio
 import numpy as np
@@ -15,10 +16,19 @@ class BaseDenseLayer(nn.Module):
             nn.BatchNorm2d(input_dim),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=input_dim, out_channels=128, kernel_size=1, bias=False),
-                nn.BatchNorm2d(128),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(in_channels=128, out_channels=growth_rate, kernel_size=3, padding=1)
-            )        
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=128, out_channels=growth_rate, kernel_size=3, padding=1, bias=False)
+        )        
+        self.initParameters()
+
+    def initParameters(self):
+        stateDict = self.state_dict()
+        # print(stateDict.keys())
+        nn.init.xavier_uniform(stateDict['layer.2.weight'])
+        # nn.init.constant(stateDict['layer.2.bias'], 0)
+        nn.init.xavier_uniform(stateDict['layer.5.weight'])
+        # nn.init.constant(stateDict['layer.5.bias'], 0)
 
     def forward(self, x):
         # input('BaseDenseLayer:forward loop ')
@@ -48,6 +58,13 @@ class DenseBlock(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=catDim, out_channels=self.outputDim, kernel_size=1, bias=False)
         )
+        self.initParameters()
+
+    def initParameters(self):
+        stateDict = self.state_dict()
+        nn.init.xavier_uniform(stateDict['transition.2.weight'])
+        # nn.init.constant(stateDict['transition.2.bias'], 0)
+
 
     def forward(self, x):
         # input('DenseBlock:forward')
@@ -77,25 +94,28 @@ class DFCN_32(nn.Module):
     def __init__(self):
         super(DFCN_32, self).__init__()
         
-        self.conv_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1, stride=2)
+        self.conv_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, padding=3, stride=2)
+        self.bn_1 = nn.BatchNorm2d(64)
         self.relu1 =  nn.ReLU(inplace=True)
-        self.pooling_1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.denseBlock1 = DenseBlock(inputDim=64, outputDim=128 ,growthRate=32, blockDepth=4)
+        self.pooling_1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.denseBlock1 = DenseBlock(inputDim=64, outputDim=128 ,growthRate=32, blockDepth=6)
         self.relu2 =  nn.ReLU(inplace=True)
-        self.pooling_2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.denseBlock2 = DenseBlock(inputDim=128, outputDim=256 ,growthRate=32, blockDepth=8)
+        self.pooling_2 = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.denseBlock2 = DenseBlock(inputDim=128, outputDim=256 ,growthRate=32, blockDepth=12)
         self.relu3 =  nn.ReLU(inplace=True)
-        self.pooling_3 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.denseBlock3 = DenseBlock(inputDim=256, outputDim=512 ,growthRate=32, blockDepth=16)
+        self.pooling_3 = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.denseBlock3 = DenseBlock(inputDim=256, outputDim=512 ,growthRate=32, blockDepth=24)
         self.relu4 =  nn.ReLU(inplace=True)
-        self.pooling_4 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pooling_4 = nn.AvgPool2d(kernel_size=2, stride=2)
 
-        self.conv_fc_5_1 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, padding=0)
+        self.conv_fc_5_1 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, padding=0, bias=False)
         self.relu5 =  nn.ReLU(inplace=True)
-        self.conv_fc_5_2 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, padding=0)
+        self.drop_5 = nn.Dropout2d(p=0.2)
+        self.conv_fc_5_2 = nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=1, padding=0, bias=False)
         self.relu6 =  nn.ReLU(inplace=True)
+        self.drop_6 = nn.Dropout2d(p=0.2)
 
-        self.score_32 = nn.Conv2d(in_channels=512, out_channels=1, kernel_size=3, padding=1)
+        self.score_32 = nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=3, padding=1)
         self.relu7 =  nn.ReLU(inplace=True)
         self.upsample_to_16 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
@@ -120,6 +140,83 @@ class DFCN_32(nn.Module):
             nn.PixelShuffle(2),
             nn.LeakyReLU(0.2, inplace=True),
         )
+        self.initParameters()
+
+    def initParameters(self):
+        stateDict = self.state_dict()
+        nn.init.xavier_uniform(stateDict['conv_1.weight'])
+        nn.init.constant(stateDict['conv_1.bias'], 0)
+        nn.init.xavier_uniform(stateDict['conv_fc_5_1.weight'])
+        nn.init.constant(stateDict['conv_fc_5_1.bias'], 0)
+        nn.init.xavier_uniform(stateDict['conv_fc_5_2.weight'])
+        nn.init.constant(stateDict['conv_fc_5_2.bias'], 0)
+        nn.init.xavier_uniform(stateDict['score_32.weight'])
+        nn.init.constant(stateDict['score_32.bias'], 0)
+
+        nn.init.xavier_uniform(stateDict['upsample_to_16.0.weight'])
+        nn.init.xavier_uniform(stateDict['upsample_to_8.0.weight'])
+        nn.init.xavier_uniform(stateDict['upsample_to_4.0.weight'])
+        nn.init.xavier_uniform(stateDict['upsample4x.0.weight'])
+
+    def forward(self, x):
+        out = self.conv_1(x)
+        out = self.bn_1(out)
+        out = self.relu1(out)
+        out = self.pooling_1(out)
+
+        out = self.denseBlock1(out)
+        out = self.relu2(out)
+        out = self.pooling_2(out)
+
+        out = self.denseBlock2(out)
+        out = self.relu3(out)
+        out = self.pooling_3(out)
+        out = self.denseBlock3(out)
+        out = self.relu4(out)
+        out = self.pooling_4(out)
+
+        out = self.conv_fc_5_1(out)
+        out = self.drop_5(out)
+        out = self.relu5(out)
+        out = self.conv_fc_5_2(out)
+        out = self.drop_6(out)
+        out = self.relu6(out)
+        out = self.score_32(out)
+        out = self.relu7(out)
+
+        out = self.upsample_to_16(out)
+
+        outSize = out.size()
+        marginLeft = Variable(torch.zeros(outSize[0], outSize[1], 1, outSize[3]))
+        # marginTop = Variable(torch.zeros(outSize[0], outSize[1], outSize[2]+1, 1))
+        if out.is_cuda:
+            marginLeft = marginLeft.cuda()
+            # marginTop = marginTop.cuda()
+        out = torch.cat([out, marginLeft], 2)
+        # out = torch.cat([out, marginTop], 3)
+
+        out = self.upsample_to_8(out)
+        out = self.upsample_to_4(out)
+        out = self.upsample4x(out)
+
+        return out
+
+class DFCN_16(DFCN_32):
+    """docstring for DFCN_16"""
+    def __init__(self):
+        super(DFCN_16, self).__init__()
+
+        self.score_16 = nn.Conv2d(in_channels=256, out_channels=1, kernel_size=3, padding=1)
+        self.upsample = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.upsample_to_8 = nn.Sequential(
+            nn.Conv2d(in_channels=2, out_channels=4, kernel_size=3, padding=1, bias=False),
+            nn.PixelShuffle(2),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
 
     def forward(self, x):
         out = self.conv_1(x)
@@ -132,6 +229,10 @@ class DFCN_32(nn.Module):
         out = self.denseBlock2(out)
         out = self.relu3(out)
         out = self.pooling_3(out)
+        out_16 = out
+        out_16 = self.score_16(out_16)
+        out_16 = self.upsample(out_16)
+
         out = self.denseBlock3(out)
         out = self.relu4(out)
         out = self.pooling_4(out)
@@ -144,12 +245,12 @@ class DFCN_32(nn.Module):
         out = self.relu7(out)
 
         out = self.upsample_to_16(out)
-        out = self.upsample_to_8(out)
-        out = self.upsample_to_4(out)
-        out = self.upsample4x(out)
+        out_cat = torch.cat([out, out_16], 1)
+        out_cat = self.upsample_to_8(out_cat)
+        out_cat = self.upsample_to_4(out_cat)
+        out_cat = self.upsample4x(out_cat)
 
-        return out
-
+        return out_cat
 
 class RDCN_VGG(nn.Module):
     def __init__(self, rec_num):
@@ -298,4 +399,60 @@ class InvLoss(nn.Module):
         loss = torch.sum(loss)
         return loss
 
-        
+
+def copyArrayToTensor(array, tensor):
+    aShape = array.shape
+    tShape = tensor.shape
+    
+    if len(aShape) == 2 and aShape[0] == 1:
+        array = np.squeeze(array)
+        aShape = array.shape
+
+    if len(aShape) != len(tShape):
+        raise ValueError('array shape:{} mismatches with tensor: {}'.format(aShape, tShape))
+
+    for indx in range(len(aShape)):
+        if aShape[indx] != tShape[indx]:
+            raise ValueError('array shape:{} mismatches with tensor: {}'.format(aShape, tShape))
+
+    if len(aShape) == 1:
+        for n in range(aShape[0]):
+            tensor[n] = float(array[n])
+    elif len(aShape) == 2:
+        for n in range(aShape[0]):
+            for c in range(aShape[1]):
+                tensor[n, c] = float(array[n, c])
+    elif len(aShape) == 3:
+        for n in range(aShape[0]):
+            for c in range(aShape[1]):
+                for h in range(aShape[2]):
+                    tensor[n, c, h] = float(array[n, c, h])
+    elif len(aShape) == 4:
+        for n in range(aShape[0]):
+            for c in range(aShape[1]):
+                for h in range(aShape[2]):
+                    for w in range(aShape[3]):
+                        tensor[n, c, h, w] = float(array[n, c, h, w])
+
+
+def copyParametersToModel(params, model, rule_file):
+    ruleDict = dict()
+    ruleFile = open(rule_file, 'r')
+    line = ruleFile.readline()
+    while line != '':
+        contents = line.split(' ')
+        currSrcLayer = contents[0]
+        if contents[1] == '\n':
+            currTargetLayer = contents[1][:-1]
+        else:
+            currTargetLayer = contents[1]
+
+        ruleDict[currSrcLayer] = currTargetLayer
+        line = ruleFile.readline()
+
+    ruleFile.close()
+
+    # load parameters
+    modules = model.state_dict()
+    for key in ruleDict.keys():
+        copyArrayToTensor(params[key], modules[ruleDict[key]])
