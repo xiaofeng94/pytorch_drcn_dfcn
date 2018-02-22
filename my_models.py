@@ -91,10 +91,11 @@ class DenseBlock(nn.Module):
 
 class DFCN_32(nn.Module):
     """docstring for DFCN_32"""
-    def __init__(self):
+    def __init__(self, is_Train=True):
         super(DFCN_32, self).__init__()
+        self.isTrain = is_Train
         
-        self.conv_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, padding=3, stride=2)
+        self.conv_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, padding=3, stride=2, bias=False)
         self.bn_1 = nn.BatchNorm2d(64)
         self.relu1 =  nn.ReLU(inplace=True)
         self.pooling_1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -115,7 +116,7 @@ class DFCN_32(nn.Module):
         self.relu6 =  nn.ReLU(inplace=True)
         self.drop_6 = nn.Dropout2d(p=0.2)
 
-        self.score_32 = nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=3, padding=1)
+        self.score_32 = nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=3, padding=1, bias=False)
         self.relu7 =  nn.ReLU(inplace=True)
         self.upsample_to_16 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
@@ -142,16 +143,19 @@ class DFCN_32(nn.Module):
         )
         self.initParameters()
 
+    def setTrainMode(self, isTrain):
+        self.isTrain = isTrain
+
     def initParameters(self):
         stateDict = self.state_dict()
         nn.init.xavier_uniform(stateDict['conv_1.weight'])
-        nn.init.constant(stateDict['conv_1.bias'], 0)
+        # nn.init.constant(stateDict['conv_1.bias'], 0)
         nn.init.xavier_uniform(stateDict['conv_fc_5_1.weight'])
-        nn.init.constant(stateDict['conv_fc_5_1.bias'], 0)
+        # nn.init.constant(stateDict['conv_fc_5_1.bias'], 0)
         nn.init.xavier_uniform(stateDict['conv_fc_5_2.weight'])
-        nn.init.constant(stateDict['conv_fc_5_2.bias'], 0)
+        # nn.init.constant(stateDict['conv_fc_5_2.bias'], 0)
         nn.init.xavier_uniform(stateDict['score_32.weight'])
-        nn.init.constant(stateDict['score_32.bias'], 0)
+        # nn.init.constant(stateDict['score_32.bias'], 0)
 
         nn.init.xavier_uniform(stateDict['upsample_to_16.0.weight'])
         nn.init.xavier_uniform(stateDict['upsample_to_8.0.weight'])
@@ -174,6 +178,8 @@ class DFCN_32(nn.Module):
         out = self.denseBlock3(out)
         out = self.relu4(out)
         out = self.pooling_4(out)
+        # if self.isTrain:
+        #     out.volatile = False
 
         out = self.conv_fc_5_1(out)
         out = self.drop_5(out)
@@ -435,24 +441,27 @@ def copyArrayToTensor(array, tensor):
                         tensor[n, c, h, w] = float(array[n, c, h, w])
 
 
-def copyParametersToModel(params, model, rule_file):
+def copyParametersToModel(params, modules, rule_file):
     ruleDict = dict()
     ruleFile = open(rule_file, 'r')
     line = ruleFile.readline()
     while line != '':
         contents = line.split(' ')
         currSrcLayer = contents[0]
-        if contents[1] == '\n':
+        if contents[1][-1] == '\n':
             currTargetLayer = contents[1][:-1]
         else:
             currTargetLayer = contents[1]
 
-        ruleDict[currSrcLayer] = currTargetLayer
+        if currSrcLayer in params.keys():
+            ruleDict[currSrcLayer] = currTargetLayer
+        else:
+            raise ValueError('pretrainModel has no key: %s'%currSrcLayer)
         line = ruleFile.readline()
 
     ruleFile.close()
 
     # load parameters
-    modules = model.state_dict()
-    for key in ruleDict.keys():
-        copyArrayToTensor(params[key], modules[ruleDict[key]])
+    for key, item in ruleDict.items():
+        copyArrayToTensor(params[key], modules[item])
+

@@ -1,6 +1,10 @@
 import argparse, os
 import math, random
 
+import io, sys, time
+# sys.stdout = io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8')
+# sys.stdout = Unbuffered(sys.stdout)
+
 import torch
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
@@ -32,13 +36,20 @@ parser.add_argument("--save_step", type=int, default=10,  help="save model every
 parser.add_argument("--data", default="/media/xiaofeng/learning/NYUv2_DATA/Dataset/rdcn_crop/train", type=str, help="training data folder")
 parser.add_argument("--net_type", default="dfcn_32", type=str, help="assign what kind of network to be used, default: dfcn_32")
 parser.add_argument("--lamda", type=int, default=0.5, help="the coefficient for sum square part in invLoss, Default: 0.5")
+parser.add_argument("--log", default="", type=str, help="assign log file")
+
 
 def main():
     print('start to train..')
-    global opt, model
+    global opt, model, logFile
 
     opt = parser.parse_args()
+    if opt.debug:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     print(opt)
+    if opt.log:
+        logFile = open(opt.log, 'w+')
 
     cpu_only = opt.cpu  
 
@@ -64,8 +75,12 @@ def main():
     # use pretrained vgg model
     if opt.pretrain:
         print('load pretrained model...')
-        model.loadConv(opt.pretrain)
-        # input('done !!')
+        from my_models import copyParametersToModel
+        import scipy.io as sio
+        pretrainModel = sio.loadmat(opt.pretrain)
+        modules = model.state_dict()
+        copyParametersToModel(pretrainModel, modules, './densenet_121_rules.txt')
+        print('done !!')
 
     # optionally resume from a checkpoint
     if opt.resume:
@@ -76,7 +91,7 @@ def main():
             model.load_state_dict(checkpoint["model"].state_dict())
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
-    
+
     if not cpu_only:
         print("Setting GPU")
         model = model.cuda()
@@ -87,14 +102,19 @@ def main():
     train_set = NYUv2DataSet(opt.data)
     training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
 
+    print('start optimization..')
     for epoch in range(opt.start_epoch, opt.nEpochs + 1):
         train(training_data_loader, optimizer, model, epoch)
         if epoch < 10 or epoch%opt.save_step == 0:
             save_checkpoint(model, epoch)
+    print('Optimization Done!')
+
+    if opt.log:
+        logFile.close()
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10"""
-    lr = opt.lr * (0.4 ** (epoch // opt.lr_step))
+    lr = opt.lr * (0.8 ** (epoch // opt.lr_step))
     return lr    
 
 # def invLoss(input, target, lamda=0.5):
@@ -121,16 +141,16 @@ def train(training_data_loader, optimizer, model, epoch):
     cumulated_loss = 0
     stepCount = 0
     optimizer.zero_grad()
-    # criterion = nn.MSELoss(size_average=True)
-    criterion = InvLoss(opt.lamda)
+    criterion = nn.MSELoss(size_average=True)
+    # criterion = InvLoss(opt.lamda)
 
     for iterCount, batch in enumerate(training_data_loader, 1):
         inputData, target = Variable(batch[0]), Variable(batch[1], requires_grad=False)
+        # inputData.volatile = True
 
         if not opt.cpu:
             inputData = inputData.cuda()
             target = target.cuda()
-            targetx4 = targetx4.cuda()
 
         predicted_depth = model(inputData)
 
@@ -149,19 +169,27 @@ def train(training_data_loader, optimizer, model, epoch):
 
         # debug grad
         if opt.debug:
-            if loss.data[0] < 0.4:
-                count = 0
-                for param in model.parameters():
-                    count += 1
+            count = 0
+            inputFlag = True
+            for param in model.parameters():
+                count += 1
+                print('-- {}, shape: {} ---------------'.format(count, param.shape))
+                if param.grad is not None:
                     gradSum = torch.sum(param.grad)
-                    # if abs(gradSum.data[0]) < 1e-6:
-                    print('-- {}, shape: {} ---------------'.format(count, param.shape))
                     print(gradSum.data[0])
+                # print(param.data)
 
-                input('end of the step')
+                if inputFlag:
+                    char = input('go to next layer')
+                if char == 'c':
+                    inputFlag = False
+
+            input('=== end of the step')
 
         if iterCount%opt.disp == 0:
             print("Epoch[{}]({}/{}): Loss: {:.10f}".format(epoch, iterCount, len(training_data_loader), cumulated_loss/opt.disp))
+            if opt.log:
+                logFile.write("Epoch[{}]({}/{}): Loss: {:.10f}".format(epoch, iterCount, len(training_data_loader), cumulated_loss/opt.disp))
             cumulated_loss = 0
         else:
             cumulated_loss += loss.data[0]

@@ -31,6 +31,7 @@ rgb_new = torch.from_numpy(rgb_new[np.newaxis,:,:,:]).float()
 
 print('build model...')
 model = torch.load(opt.model)["model"]
+model.setTrainMode(False)
 
 # print(model)
 
@@ -40,7 +41,10 @@ if not opt.cpu:
     # depth_new = depth_new.cuda()
     # depthx4_new = depthx4_new.cuda()
 
-predicted_depth = model(Variable(rgb_new))
+inputData = Variable(rgb_new)
+inputData.volatile = True
+
+predicted_depth = model(inputData)
 # _, predictx4_2, predict_2 = model(Variable(torch.randn(1,3,480,640).cuda()))
 
 
