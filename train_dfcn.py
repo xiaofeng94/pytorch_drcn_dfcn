@@ -107,6 +107,8 @@ def main():
         train(training_data_loader, optimizer, model, epoch)
         if epoch < 10 or epoch%opt.save_step == 0:
             save_checkpoint(model, epoch)
+        if opt.log:
+            logFile.flush()
     print('Optimization Done!')
 
     if opt.log:
@@ -189,7 +191,7 @@ def train(training_data_loader, optimizer, model, epoch):
         if iterCount%opt.disp == 0:
             print("Epoch[{}]({}/{}): Loss: {:.10f}".format(epoch, iterCount, len(training_data_loader), cumulated_loss/opt.disp))
             if opt.log:
-                logFile.write("Epoch[{}]({}/{}): Loss: {:.10f}".format(epoch, iterCount, len(training_data_loader), cumulated_loss/opt.disp))
+                logFile.write("Epoch[{}]({}/{}): Loss: {:.10f}\n".format(epoch, iterCount, len(training_data_loader), cumulated_loss/opt.disp))
             cumulated_loss = 0
         else:
             cumulated_loss += loss.data[0]
