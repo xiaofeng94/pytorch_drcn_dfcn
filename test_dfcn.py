@@ -25,7 +25,7 @@ depth = data['depth'][0,0]
 depthx4 = data['depthx4'][0,0]
 
 rgb_new = rgb.transpose((2, 0, 1))
-rgb_new = torch.from_numpy(rgb_new[np.newaxis,:,:,:]).float()
+rgb_new = torch.from_numpy(rgb_new[np.newaxis,:,30:270,40:360]).float()
 # depth_new = torch.from_numpy(depth[np.newaxis, :, :]).float()
 # depthx4_new = torch.from_numpy(depthx4[np.newaxis, :, :]).float()
 

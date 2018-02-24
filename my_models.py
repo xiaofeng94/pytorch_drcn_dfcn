@@ -117,7 +117,7 @@ class DFCN_32(nn.Module):
         self.drop_6 = nn.Dropout2d(p=0.2)
 
         self.score_32 = nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=3, padding=1, bias=False)
-        self.relu7 =  nn.ReLU(inplace=True)
+        # self.relu7 =  nn.ReLU(inplace=True)
         self.upsample_to_16 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1, bias=False),
             nn.PixelShuffle(2),
@@ -141,6 +141,7 @@ class DFCN_32(nn.Module):
             nn.PixelShuffle(2),
             nn.LeakyReLU(0.2, inplace=True),
         )
+
         self.initParameters()
 
     def setTrainMode(self, isTrain):
@@ -187,23 +188,26 @@ class DFCN_32(nn.Module):
         out = self.conv_fc_5_2(out)
         out = self.drop_6(out)
         out = self.relu6(out)
+        # out = self.score_32(out)
+        # out = self.relu7(out)
+
+        # out = self.upsample_to_16(out)
+        # out = nn.functional.upsample(out, size=(2,2), mode='bilinear')
+
+        # outSize = out.size()
+        # marginLeft = Variable(torch.zeros(outSize[0], outSize[1], 1, outSize[3]))
+        # # marginTop = Variable(torch.zeros(outSize[0], outSize[1], outSize[2]+1, 1))
+        # if out.is_cuda:
+        #     marginLeft = marginLeft.cuda()
+        #     # marginTop = marginTop.cuda()
+        # out = torch.cat([out, marginLeft], 2)
+
+        # out = self.upsample_to_8(out)
+        # out = self.upsample_to_4(out)
+        # out = self.upsample4x(out)
+        out = nn.functional.upsample(out, size=(240, 320), mode='bilinear')
+
         out = self.score_32(out)
-        out = self.relu7(out)
-
-        out = self.upsample_to_16(out)
-
-        outSize = out.size()
-        marginLeft = Variable(torch.zeros(outSize[0], outSize[1], 1, outSize[3]))
-        # marginTop = Variable(torch.zeros(outSize[0], outSize[1], outSize[2]+1, 1))
-        if out.is_cuda:
-            marginLeft = marginLeft.cuda()
-            # marginTop = marginTop.cuda()
-        out = torch.cat([out, marginLeft], 2)
-        # out = torch.cat([out, marginTop], 3)
-
-        out = self.upsample_to_8(out)
-        out = self.upsample_to_4(out)
-        out = self.upsample4x(out)
 
         return out
 
